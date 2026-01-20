@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>20分カウントダウン</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans JP", sans-serif; }
+    body { margin: 0; padding: 24px; background: #0b0f14; color: #e7eef8; }
+    .card { max-width: 520px; margin: 0 auto; padding: 20px; border: 1px solid #1f2a37; border-radius: 16px; background: #0f1720; }
+    h1 { margin: 0 0 12px; font-size: 18px; font-weight: 700; }
+    .time { font-variant-numeric: tabular-nums; font-size: 64px; letter-spacing: 1px; text-align: center; margin: 12px 0 8px; }
+    .status { text-align: center; min-height: 22px; color: #9fb3c8; margin-bottom: 16px; }
+    .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    button {
+      appearance: none; border: 1px solid #2a3a4d; background: #121c27; color: #e7eef8;
+      padding: 10px 14px; border-radius: 12px; font-weight: 650; cursor: pointer;
+    }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .small { margin-top: 14px; font-size: 12px; color: #9fb3c8; line-height: 1.5; }
+    .pill { display:inline-block; padding: 2px 8px; border: 1px solid #2a3a4d; border-radius: 999px; margin-left: 8px; font-size: 12px; color:#c7d6ea; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>20分カウントダウン <span class="pill">開始3秒ディレイ</span></h1>
+    <div class="time" id="time">20:00</div>
+    <div class="status" id="status">待機中</div>
+
+    <div class="row">
+      <button id="startBtn">開始</button>
+      <button id="pauseBtn" disabled>一時停止</button>
+      <button id="resumeBtn" disabled>再開</button>
+      <button id="resetBtn">リセット</button>
+    </div>
+
+    <div class="small">
+      音声：ブラウザの読み上げ機能（SpeechSynthesis）を使用します。端末設定やブラウザ仕様により声質は変わります。<br>
+      ※無音の場合は、端末のミュート/音量、またはブラウザの自動再生制限をご確認ください。
+    </div>
+  </div>
+
+  <script>
+    // ====== 設定 ======
+    const TOTAL_SECONDS = 20 * 60;   // 20分
+    const START_DELAY_MS = 3000;     // 3秒後に開始
+
+    // ====== 状態 ======
+    let remaining = TOTAL_SECONDS;
+    let intervalId = null;
+    let delayTimeoutId = null;
+    let isRunning = false;
+    let isDelayed = false;
+
+    // アナウンスの重複防止
+    const announced = new Set(); // "start", "10", "5", "1", "end"
+
+    // ====== DOM ======
+    const timeEl = document.getElementById("time");
+    const statusEl = document.getElementById("status");
+    const startBtn = document.getElementById("startBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const resumeBtn = document.getElementById("resumeBtn");
+    const resetBtn = document.getElementById("resetBtn");
+
+    // ====== 表示 ======
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    }
+
+    function render() {
+      timeEl.textContent = formatTime(remaining);
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    // ====== 音声 ======
+    function speak(text) {
+      if (!("speechSynthesis" in window)) return;
+      // 既存キューを軽く掃除（連打時の重複を防ぐ）
+      window.speechSynthesis.cancel();
+
+      const uttr = new SpeechSynthesisUtterance(text);
+      uttr.lang = "ja-JP";
+      uttr.rate = 1.0;
+      uttr.pitch = 1.0;
+      uttr.volume = 1.0;
+
+      window.speechSynthesis.speak(uttr);
+    }
+
+    // ====== ロジック ======
+    function tick() {
+      if (remaining <= 0) return;
+
+      remaining -= 1;
+      render();
+      handleAnnouncements();
+
+      if (remaining <= 0) {
+        stopInterval();
+        isRunning = false;
+        setStatus("終了");
+        if (!announced.has("end")) {
+          announced.add("end");
+          speak("作業やめ");
+        }
+        updateButtons();
+      }
+    }
+
+    function handleAnnouncements() {
+      // 残り10分(600s), 5分(300s), 1分(60s)
+      if (remaining === 10 * 60 && !announced.has("10")) {
+        announced.add("10");
+        speak("残り時間10分です");
+      }
+      if (remaining === 5 * 60 && !announced.has("5")) {
+        announced.add("5");
+        speak("残り時間5分です");
+      }
+      if (remaining === 1 * 60 && !announced.has("1")) {
+        announced.add("1");
+        speak("残り時間1分です");
+      }
+    }
+
+    function startWithDelay() {
+      if (isRunning || isDelayed) return;
+
+      isDelayed = true;
+      setStatus("3秒後に開始…");
+      updateButtons();
+
+      delayTimeoutId = window.setTimeout(() => {
+        isDelayed = false;
+        startCountdown();
+      }, START_DELAY_MS);
+    }
+
+    function startCountdown() {
+      if (isRunning) return;
+
+      isRunning = true;
+      setStatus("作業中");
+      updateButtons();
+
+      if (!announced.has("start")) {
+        announced.add("start");
+        speak("作業開始");
+      }
+
+      // 初回表示を即反映（開始時点で20:00のまま）
+      render();
+
+      intervalId = window.setInterval(tick, 1000);
+    }
+
+    function pause() {
+      if (!isRunning) return;
+      stopInterval();
+      isRunning = false;
+      setStatus("一時停止中");
+      updateButtons();
+    }
+
+    function resume() {
+      if (isRunning || remaining <= 0) return;
+      isRunning = true;
+      setStatus("作業中");
+      updateButtons();
+      intervalId = window.setInterval(tick, 1000);
+    }
+
+    function resetAll() {
+      stopInterval();
+      stopDelay();
+      isRunning = false;
+      isDelayed = false;
+      remaining = TOTAL_SECONDS;
+      announced.clear();
+      window.speechSynthesis?.cancel();
+      render();
+      setStatus("待機中");
+      updateButtons();
+    }
+
+    function stopInterval() {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    }
+
+    function stopDelay() {
+      if (delayTimeoutId !== null) {
+        window.clearTimeout(delayTimeoutId);
+        delayTimeoutId = null;
+      }
+    }
+
+    function updateButtons() {
+      startBtn.disabled = isRunning || isDelayed || remaining <= 0;
+      pauseBtn.disabled = !isRunning;
+      resumeBtn.disabled = isRunning || isDelayed || remaining <= 0;
+    }
+
+    // ====== イベント ======
+    startBtn.addEventListener("click", startWithDelay);
+    pauseBtn.addEventListener("click", pause);
+    resumeBtn.addEventListener("click", resume);
+    resetBtn.addEventListener("click", resetAll);
+
+    // 初期描画
+    render();
+    updateButtons();
+  </script>
+</body>
+</html>
