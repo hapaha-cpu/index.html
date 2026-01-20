@@ -13,17 +13,21 @@
     .status { text-align: center; min-height: 22px; color: #9fb3c8; margin-bottom: 16px; }
     .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
     button {
-      appearance: none; border: 1px solid #2a3a4d; background: #121c27; color: #e7eef8;
-      padding: 10px 14px; border-radius: 12px; font-weight: 650; cursor: pointer;
+      appearance: none;
+      border: 1px solid #2a3a4d;
+      background: #121c27;
+      color: #e7eef8;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-weight: 650;
+      cursor: pointer;
     }
     button:disabled { opacity: .45; cursor: not-allowed; }
-    .small { margin-top: 14px; font-size: 12px; color: #9fb3c8; line-height: 1.5; }
-    .pill { display:inline-block; padding: 2px 8px; border: 1px solid #2a3a4d; border-radius: 999px; margin-left: 8px; font-size: 12px; color:#c7d6ea; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>20分カウントダウン <span class="pill">開始3秒ディレイ</span></h1>
+    <h1>20分カウントダウン</h1>
     <div class="time" id="time">20:00</div>
     <div class="status" id="status">待機中</div>
 
@@ -33,29 +37,22 @@
       <button id="resumeBtn" disabled>再開</button>
       <button id="resetBtn">リセット</button>
     </div>
-
-    <div class="small">
-      音声：ブラウザの読み上げ機能（SpeechSynthesis）を使用します。端末設定やブラウザ仕様により声質は変わります。<br>
-      ※無音の場合は、端末のミュート/音量、またはブラウザの自動再生制限をご確認ください。
-    </div>
   </div>
 
   <script>
-    // ====== 設定 ======
-    const TOTAL_SECONDS = 20 * 60;   // 20分
-    const START_DELAY_MS = 3000;     // 3秒後に開始
+    // ===== 設定 =====
+    const TOTAL_SECONDS = 20 * 60; // 20分
+    const START_DELAY_MS = 3000;   // 3秒
 
-    // ====== 状態 ======
+    // ===== 状態 =====
     let remaining = TOTAL_SECONDS;
     let intervalId = null;
     let delayTimeoutId = null;
     let isRunning = false;
     let isDelayed = false;
+    const announced = new Set();
 
-    // アナウンスの重複防止
-    const announced = new Set(); // "start", "10", "5", "1", "end"
-
-    // ====== DOM ======
+    // ===== DOM =====
     const timeEl = document.getElementById("time");
     const statusEl = document.getElementById("status");
     const startBtn = document.getElementById("startBtn");
@@ -63,7 +60,7 @@
     const resumeBtn = document.getElementById("resumeBtn");
     const resetBtn = document.getElementById("resetBtn");
 
-    // ====== 表示 ======
+    // ===== 表示 =====
     function formatTime(sec) {
       const m = Math.floor(sec / 60);
       const s = sec % 60;
@@ -78,43 +75,44 @@
       statusEl.textContent = text;
     }
 
-    // ====== 音声 ======
+    // ===== 音声 =====
     function speak(text) {
       if (!("speechSynthesis" in window)) return;
-      // 既存キューを軽く掃除（連打時の重複を防ぐ）
       window.speechSynthesis.cancel();
-
-      const uttr = new SpeechSynthesisUtterance(text);
-      uttr.lang = "ja-JP";
-      uttr.rate = 1.0;
-      uttr.pitch = 1.0;
-      uttr.volume = 1.0;
-
-      window.speechSynthesis.speak(uttr);
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      window.speechSynthesis.speak(u);
     }
 
-    // ====== ロジック ======
+    // iOS Safari 対策：ユーザー操作内で音声エンジンを解放
+    function unlockSpeech() {
+      if (!("speechSynthesis" in window)) return;
+      const u = new SpeechSynthesisUtterance("");
+      u.lang = "ja-JP";
+      window.speechSynthesis.speak(u);
+    }
+
+    // ===== カウント処理 =====
     function tick() {
       if (remaining <= 0) return;
 
-      remaining -= 1;
+      remaining--;
       render();
       handleAnnouncements();
 
       if (remaining <= 0) {
         stopInterval();
-        isRunning = false;
         setStatus("終了");
         if (!announced.has("end")) {
           announced.add("end");
           speak("作業やめ");
         }
+        isRunning = false;
         updateButtons();
       }
     }
 
     function handleAnnouncements() {
-      // 残り10分(600s), 5分(300s), 1分(60s)
       if (remaining === 10 * 60 && !announced.has("10")) {
         announced.add("10");
         speak("残り時間10分です");
@@ -131,12 +129,11 @@
 
     function startWithDelay() {
       if (isRunning || isDelayed) return;
-
       isDelayed = true;
       setStatus("3秒後に開始…");
       updateButtons();
 
-      delayTimeoutId = window.setTimeout(() => {
+      delayTimeoutId = setTimeout(() => {
         isDelayed = false;
         startCountdown();
       }, START_DELAY_MS);
@@ -144,7 +141,6 @@
 
     function startCountdown() {
       if (isRunning) return;
-
       isRunning = true;
       setStatus("作業中");
       updateButtons();
@@ -154,10 +150,7 @@
         speak("作業開始");
       }
 
-      // 初回表示を即反映（開始時点で20:00のまま）
-      render();
-
-      intervalId = window.setInterval(tick, 1000);
+      intervalId = setInterval(tick, 1000);
     }
 
     function pause() {
@@ -173,49 +166,44 @@
       isRunning = true;
       setStatus("作業中");
       updateButtons();
-      intervalId = window.setInterval(tick, 1000);
+      intervalId = setInterval(tick, 1000);
     }
 
     function resetAll() {
       stopInterval();
-      stopDelay();
+      clearTimeout(delayTimeoutId);
+      remaining = TOTAL_SECONDS;
       isRunning = false;
       isDelayed = false;
-      remaining = TOTAL_SECONDS;
       announced.clear();
-      window.speechSynthesis?.cancel();
+      window.speechSynthesis.cancel();
       render();
       setStatus("待機中");
       updateButtons();
     }
 
     function stopInterval() {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
+      if (intervalId) {
+        clearInterval(intervalId);
         intervalId = null;
       }
     }
 
-    function stopDelay() {
-      if (delayTimeoutId !== null) {
-        window.clearTimeout(delayTimeoutId);
-        delayTimeoutId = null;
-      }
-    }
-
     function updateButtons() {
-      startBtn.disabled = isRunning || isDelayed || remaining <= 0;
+      startBtn.disabled = isRunning || isDelayed;
       pauseBtn.disabled = !isRunning;
-      resumeBtn.disabled = isRunning || isDelayed || remaining <= 0;
+      resumeBtn.disabled = isRunning || remaining <= 0;
     }
 
-    // ====== イベント ======
-    startBtn.addEventListener("click", startWithDelay);
+    // ===== イベント =====
+    startBtn.addEventListener("click", () => {
+      unlockSpeech();   // ← iOS対策の核心
+      startWithDelay();
+    });
     pauseBtn.addEventListener("click", pause);
     resumeBtn.addEventListener("click", resume);
     resetBtn.addEventListener("click", resetAll);
 
-    // 初期描画
     render();
     updateButtons();
   </script>
